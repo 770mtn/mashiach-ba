@@ -157,7 +157,7 @@ function ProductIllustration({ type }) {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('home');
-  const [showSmsSimulator, setShowSmsSimulator] = useState(true);
+const [showSmsSimulator, setShowSmsSimulator] = useState(false);
 
   const [settings, setSettings] = useState({
     heroTitle: 'הנה זה משיח בא – מגיע עד אליך לבית',
