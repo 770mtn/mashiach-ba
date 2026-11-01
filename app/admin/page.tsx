@@ -1,7 +1,12 @@
 
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 
 type OrderItem = {
   product_id: string;
@@ -57,20 +62,29 @@ const emptyProduct = {
 export default function AdminPage() {
   const [loggedIn, setLoggedIn] = useState(false);
   const [password, setPassword] = useState("");
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+
   const [tab, setTab] = useState("orders");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
   const [productForm, setProductForm] = useState(emptyProduct);
   const [editingProduct, setEditingProduct] = useState<string | null>(null);
   const [savingProduct, setSavingProduct] = useState(false);
 
-  async function loadOrders() {
+  // תמונת המוצר שנבחרה מהמחשב
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState("");
+
+  // טעינת הזמנות
+  async function loadOrders(): Promise<boolean> {
     const response = await fetch("/api/admin/orders", {
       cache: "no-store",
       credentials: "same-origin",
@@ -78,7 +92,7 @@ export default function AdminPage() {
 
     if (response.status === 401) {
       setLoggedIn(false);
-      return;
+      return false;
     }
 
     const result = await response.json();
@@ -89,8 +103,10 @@ export default function AdminPage() {
 
     setOrders(result.orders || []);
     setLoggedIn(true);
+    return true;
   }
 
+  // טעינת מוצרים
   async function loadProducts() {
     const response = await fetch("/api/admin/products", {
       cache: "no-store",
@@ -106,18 +122,21 @@ export default function AdminPage() {
     setProducts(result.products || []);
   }
 
+  // טעינת כל הנתונים
   async function loadAll() {
     setLoading(true);
     setError("");
 
     try {
-      await loadOrders();
+      const authenticated = await loadOrders();
 
-      if (document.cookie || true) {
+      if (authenticated) {
         await loadProducts();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "אירעה שגיאה.");
+      setError(
+        err instanceof Error ? err.message : "אירעה שגיאה בטעינה."
+      );
     } finally {
       setLoading(false);
     }
@@ -127,6 +146,7 @@ export default function AdminPage() {
     loadAll();
   }, []);
 
+  // התחברות
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy("login");
@@ -149,20 +169,25 @@ export default function AdminPage() {
       setLoggedIn(true);
       await loadAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "אירעה שגיאה.");
+      setError(
+        err instanceof Error ? err.message : "אירעה שגיאה."
+      );
     } finally {
       setBusy("");
     }
   }
 
+  // יציאה
   async function logout() {
     await fetch("/api/admin/logout", { method: "POST" });
+
     setLoggedIn(false);
     setOrders([]);
     setProducts([]);
     setPassword("");
   }
 
+  // עדכון סטטוס הזמנה
   async function updateStatus(id: string, status: string) {
     setBusy(id);
     setError("");
@@ -189,14 +214,18 @@ export default function AdminPage() {
 
       setSuccess("סטטוס ההזמנה עודכן בהצלחה.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "אירעה שגיאה.");
+      setError(
+        err instanceof Error ? err.message : "אירעה שגיאה."
+      );
     } finally {
       setBusy("");
     }
   }
 
+  // בחירת מוצר לעריכה
   function startEdit(product: Product) {
     setEditingProduct(product.id);
+
     setProductForm({
       name: product.name,
       description: product.description || "",
@@ -209,36 +238,117 @@ export default function AdminPage() {
       display_order: product.display_order.toString(),
     });
 
+    setImageFile(null);
+    setImagePreview(product.image_url || "");
+
+    setError("");
+    setSuccess("");
+
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  // איפוס טופס מוצר
   function resetProductForm() {
     setEditingProduct(null);
     setProductForm(emptyProduct);
+    setImageFile(null);
+    setImagePreview("");
+    setError("");
+    setSuccess("");
   }
 
+  // בחירת תמונה
+  function handleImageChange(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(file.type)) {
+      setError("אפשר להעלות תמונות JPG, PNG או WEBP בלבד.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setError("גודל התמונה המרבי הוא 5MB.");
+      event.target.value = "";
+      return;
+    }
+
+    setError("");
+    setImageFile(file);
+
+    const previewUrl = URL.createObjectURL(file);
+    setImagePreview(previewUrl);
+  }
+
+  // שמירת מוצר והעלאת תמונה
   async function saveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
     setSavingProduct(true);
     setError("");
     setSuccess("");
 
-    const payload = {
-      name: productForm.name.trim(),
-      description: productForm.description.trim() || null,
-      image_url: productForm.image_url.trim() || null,
-      price: productForm.price === "" ? null : Number(productForm.price),
-      special_price:
-        productForm.special_price === ""
-          ? null
-          : Number(productForm.special_price),
-      is_available: productForm.is_available,
-      is_visible: productForm.is_visible,
-      allows_installation: productForm.allows_installation,
-      display_order: Number(productForm.display_order),
-    };
+    const wasEditing = Boolean(editingProduct);
 
     try {
+      let imageUrl = productForm.image_url.trim() || null;
+
+      // אם נבחרה תמונה חדשה, מעלים אותה ל-Supabase
+      if (imageFile) {
+        const formData = new FormData();
+        formData.append("file", imageFile);
+
+        const uploadResponse = await fetch(
+          "/api/admin/products/upload",
+          {
+            method: "POST",
+            body: formData,
+            credentials: "same-origin",
+          }
+        );
+
+        const uploadResult = await uploadResponse.json();
+
+        if (!uploadResponse.ok) {
+          throw new Error(
+            uploadResult.error || "העלאת התמונה נכשלה."
+          );
+        }
+
+        imageUrl = uploadResult.image_url;
+      }
+
+      const payload = {
+        name: productForm.name.trim(),
+        description: productForm.description.trim() || null,
+        image_url: imageUrl,
+
+        price:
+          productForm.price === ""
+            ? null
+            : Number(productForm.price),
+
+        special_price:
+          productForm.special_price === ""
+            ? null
+            : Number(productForm.special_price),
+
+        is_available: productForm.is_available,
+        is_visible: productForm.is_visible,
+        allows_installation: productForm.allows_installation,
+        display_order: Number(productForm.display_order),
+      };
+
       const response = await fetch("/api/admin/products", {
         method: editingProduct ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
@@ -257,18 +367,26 @@ export default function AdminPage() {
 
       await loadProducts();
       resetProductForm();
+
       setSuccess(
-        editingProduct ? "המוצר עודכן בהצלחה." : "המוצר נוסף בהצלחה."
+        wasEditing
+          ? "המוצר עודכן בהצלחה."
+          : "המוצר נוסף בהצלחה."
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "אירעה שגיאה.");
+      setError(
+        err instanceof Error ? err.message : "אירעה שגיאה."
+      );
     } finally {
       setSavingProduct(false);
     }
   }
 
+  // מחיקת מוצר
   async function deleteProduct(product: Product) {
-    if (!window.confirm(`למחוק את המוצר "${product.name}"?`)) return;
+    if (!window.confirm(`למחוק את המוצר "${product.name}"?`)) {
+      return;
+    }
 
     setBusy(product.id);
     setError("");
@@ -292,18 +410,25 @@ export default function AdminPage() {
       );
 
       setSuccess("המוצר נמחק.");
-      if (editingProduct === product.id) resetProductForm();
+
+      if (editingProduct === product.id) {
+        resetProductForm();
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "אירעה שגיאה.");
+      setError(
+        err instanceof Error ? err.message : "אירעה שגיאה."
+      );
     } finally {
       setBusy("");
     }
   }
 
+  // סינון וחיפוש הזמנות
   const filteredOrders = useMemo(() => {
     return orders.filter((order) => {
       const matchesFilter =
         filter === "all" || order.status === filter;
+
       const text = search.trim().toLowerCase();
 
       const matchesSearch =
@@ -323,6 +448,7 @@ export default function AdminPage() {
     completed: orders.filter((o) => o.status === "completed").length,
   };
 
+  // מסך טעינה
   if (loading && !loggedIn) {
     return (
       <main className="admin-login-page">
@@ -335,12 +461,17 @@ export default function AdminPage() {
     );
   }
 
+  // מסך התחברות
   if (!loggedIn) {
     return (
       <main className="admin-login-page">
         <form className="admin-login-card" onSubmit={login}>
           <div className="admin-logo">✦</div>
-          <span className="admin-kicker">הנה זה משיח בא</span>
+
+          <span className="admin-kicker">
+            הנה זה משיח בא
+          </span>
+
           <h1>מערכת הניהול</h1>
           <p>כניסה למנהלי הקמפיין בלבד</p>
 
@@ -356,7 +487,9 @@ export default function AdminPage() {
             />
           </label>
 
-          {error && <div className="admin-error">{error}</div>}
+          {error && (
+            <div className="admin-error">{error}</div>
+          )}
 
           <button
             className="admin-primary-button"
@@ -374,18 +507,30 @@ export default function AdminPage() {
     );
   }
 
+  // לוח הניהול
   return (
     <main className="admin-page">
       <header className="admin-header">
         <div>
-          <span className="admin-kicker">הנה זה משיח בא</span>
+          <span className="admin-kicker">
+            הנה זה משיח בא
+          </span>
+
           <h1>לוח ניהול הקמפיין</h1>
           <p>ניהול ההזמנות, המוצרים והפעילות</p>
         </div>
 
         <div className="admin-header-actions">
-          <a href="/" className="admin-secondary-button">צפייה באתר</a>
-          <button onClick={logout} className="admin-dark-button">יציאה</button>
+          <a href="/" className="admin-secondary-button">
+            צפייה באתר
+          </a>
+
+          <button
+            onClick={logout}
+            className="admin-dark-button"
+          >
+            יציאה
+          </button>
         </div>
       </header>
 
@@ -396,6 +541,7 @@ export default function AdminPage() {
         >
           📦 הזמנות ({orders.length})
         </button>
+
         <button
           className={tab === "products" ? "active" : ""}
           onClick={() => setTab("products")}
@@ -404,23 +550,36 @@ export default function AdminPage() {
         </button>
       </nav>
 
-      {error && <div className="admin-error">{error}</div>}
-      {success && <div className="admin-success">{success}</div>}
+      {error && (
+        <div className="admin-error">{error}</div>
+      )}
 
+      {success && (
+        <div className="admin-success">{success}</div>
+      )}
+
+      {/* לשונית הזמנות */}
       {tab === "orders" && (
         <>
           <section className="admin-stats">
             <article className="admin-stat">
-              <span>כל ההזמנות</span><strong>{counts.all}</strong>
+              <span>כל ההזמנות</span>
+              <strong>{counts.all}</strong>
             </article>
+
             <article className="admin-stat">
-              <span>חדשות</span><strong>{counts.new}</strong>
+              <span>חדשות</span>
+              <strong>{counts.new}</strong>
             </article>
+
             <article className="admin-stat">
-              <span>בטיפול</span><strong>{counts.in_progress}</strong>
+              <span>בטיפול</span>
+              <strong>{counts.in_progress}</strong>
             </article>
+
             <article className="admin-stat">
-              <span>הושלמו</span><strong>{counts.completed}</strong>
+              <span>הושלמו</span>
+              <strong>{counts.completed}</strong>
             </article>
           </section>
 
@@ -430,6 +589,7 @@ export default function AdminPage() {
                 <h2>הזמנות שהתקבלו</h2>
                 <p>כל ההזמנות שנשלחו דרך האתר</p>
               </div>
+
               <button
                 className="admin-secondary-button"
                 onClick={loadAll}
@@ -445,6 +605,7 @@ export default function AdminPage() {
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="חיפוש לפי שם, טלפון או כתובת..."
               />
+
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
@@ -466,15 +627,24 @@ export default function AdminPage() {
             ) : (
               <div className="admin-order-list">
                 {filteredOrders.map((order) => (
-                  <article className="admin-order-card" key={order.id}>
+                  <article
+                    className="admin-order-card"
+                    key={order.id}
+                  >
                     <div className="admin-order-top">
                       <div>
                         <span className="admin-order-number">
-                          הזמנה #{order.request_number || order.id.slice(0, 8)}
+                          הזמנה #
+                          {order.request_number ||
+                            order.id.slice(0, 8)}
                         </span>
+
                         <h3>{order.full_name}</h3>
+
                         <span className="admin-order-date">
-                          {new Date(order.created_at).toLocaleString("he-IL")}
+                          {new Date(
+                            order.created_at
+                          ).toLocaleString("he-IL")}
                         </span>
                       </div>
 
@@ -482,39 +652,56 @@ export default function AdminPage() {
                         className={`admin-status status-${order.status}`}
                         value={order.status}
                         disabled={busy === order.id}
-                        onChange={(e) => updateStatus(order.id, e.target.value)}
+                        onChange={(e) =>
+                          updateStatus(order.id, e.target.value)
+                        }
                       >
-                        {Object.entries(statuses).map(([value, label]) => (
-                          <option value={value} key={value}>{label}</option>
-                        ))}
+                        {Object.entries(statuses).map(
+                          ([value, label]) => (
+                            <option value={value} key={value}>
+                              {label}
+                            </option>
+                          )
+                        )}
                       </select>
                     </div>
 
                     <div className="admin-order-details">
                       <div>
                         <span>טלפון</span>
-                        <a href={`tel:${order.phone}`}>{order.phone}</a>
+                        <a href={`tel:${order.phone}`}>
+                          {order.phone}
+                        </a>
                       </div>
+
                       <div>
                         <span>כתובת</span>
                         <strong>{order.address}</strong>
                       </div>
+
                       <div>
                         <span>התקנה</span>
                         <strong>
-                          {order.installation_required ? "נדרשת" : "לא נדרשת"}
+                          {order.installation_required
+                            ? "נדרשת"
+                            : "לא נדרשת"}
                         </strong>
                       </div>
                     </div>
 
                     <div className="admin-order-products">
                       <strong>מוצרים שהוזמנו</strong>
-                      {(order.items || []).map((item, index) => (
-                        <div key={`${item.product_id}-${index}`}>
-                          <span>{item.name}</span>
-                          <b>כמות: {item.quantity}</b>
-                        </div>
-                      ))}
+
+                      {(order.items || []).map(
+                        (item, index) => (
+                          <div
+                            key={`${item.product_id}-${index}`}
+                          >
+                            <span>{item.name}</span>
+                            <b>כמות: {item.quantity}</b>
+                          </div>
+                        )
+                      )}
                     </div>
 
                     {order.notes && (
@@ -530,13 +717,17 @@ export default function AdminPage() {
         </>
       )}
 
+      {/* לשונית מוצרים */}
       {tab === "products" && (
         <section className="admin-orders-section">
           <div className="admin-section-heading">
             <div>
               <h2>ניהול מוצרי הקמפיין</h2>
-              <p>הוספה, עריכה, מחיקה וניהול הזמינות באתר</p>
+              <p>
+                הוספה, עריכה, מחיקה וניהול הזמינות באתר
+              </p>
             </div>
+
             <button
               className="admin-secondary-button"
               onClick={resetProductForm}
@@ -545,8 +736,15 @@ export default function AdminPage() {
             </button>
           </div>
 
-          <form className="admin-product-form" onSubmit={saveProduct}>
-            <h3>{editingProduct ? "עריכת מוצר" : "הוספת מוצר חדש"}</h3>
+          <form
+            className="admin-product-form"
+            onSubmit={saveProduct}
+          >
+            <h3>
+              {editingProduct
+                ? "עריכת מוצר"
+                : "הוספת מוצר חדש"}
+            </h3>
 
             <label>
               שם המוצר *
@@ -555,7 +753,10 @@ export default function AdminPage() {
                 maxLength={150}
                 value={productForm.name}
                 onChange={(e) =>
-                  setProductForm({ ...productForm, name: e.target.value })
+                  setProductForm({
+                    ...productForm,
+                    name: e.target.value,
+                  })
                 }
                 placeholder="לדוגמה: דגל משיח"
               />
@@ -566,31 +767,63 @@ export default function AdminPage() {
               <textarea
                 value={productForm.description}
                 onChange={(e) =>
-                  setProductForm({ ...productForm, description: e.target.value })
+                  setProductForm({
+                    ...productForm,
+                    description: e.target.value,
+                  })
                 }
                 placeholder="תיאור המוצר..."
                 rows={3}
               />
             </label>
 
-            <label>
-              כתובת תמונה
-              <input
-                type="url"
-                value={productForm.image_url}
-                onChange={(e) =>
-                  setProductForm({ ...productForm, image_url: e.target.value })
-                }
-                placeholder="https://..."
-              />
+            {/* העלאת תמונה מהמחשב */}
+            <label className="admin-upload-label">
+              תמונת המוצר
+
+              <span className="admin-upload-button">
+                <span>📷</span>
+
+                {imageFile
+                  ? "בחירת תמונה אחרת"
+                  : imagePreview
+                    ? "החלפת תמונה"
+                    : "בחר תמונה מהמחשב"}
+
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleImageChange}
+                />
+              </span>
+
+              <span className="admin-upload-hint">
+                JPG, PNG או WEBP · עד 5MB
+              </span>
             </label>
 
-            {productForm.image_url && (
-              <img
-                src={productForm.image_url}
-                alt="תצוגה מקדימה"
-                className="admin-product-preview"
-              />
+            {imagePreview && (
+              <div className="admin-upload-preview">
+                <img
+                  src={imagePreview}
+                  alt="תצוגה מקדימה של המוצר"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImageFile(null);
+                    setImagePreview("");
+
+                    setProductForm({
+                      ...productForm,
+                      image_url: "",
+                    });
+                  }}
+                >
+                  הסרת תמונה
+                </button>
+              </div>
             )}
 
             <div className="admin-product-fields">
@@ -602,7 +835,10 @@ export default function AdminPage() {
                   step="0.01"
                   value={productForm.price}
                   onChange={(e) =>
-                    setProductForm({ ...productForm, price: e.target.value })
+                    setProductForm({
+                      ...productForm,
+                      price: e.target.value,
+                    })
                   }
                   placeholder="0"
                 />
@@ -616,7 +852,10 @@ export default function AdminPage() {
                   step="0.01"
                   value={productForm.special_price}
                   onChange={(e) =>
-                    setProductForm({ ...productForm, special_price: e.target.value })
+                    setProductForm({
+                      ...productForm,
+                      special_price: e.target.value,
+                    })
                   }
                   placeholder="ללא מחיר מיוחד"
                 />
@@ -630,7 +869,10 @@ export default function AdminPage() {
                   step="1"
                   value={productForm.display_order}
                   onChange={(e) =>
-                    setProductForm({ ...productForm, display_order: e.target.value })
+                    setProductForm({
+                      ...productForm,
+                      display_order: e.target.value,
+                    })
                   }
                 />
               </label>
@@ -642,7 +884,10 @@ export default function AdminPage() {
                   type="checkbox"
                   checked={productForm.is_available}
                   onChange={(e) =>
-                    setProductForm({ ...productForm, is_available: e.target.checked })
+                    setProductForm({
+                      ...productForm,
+                      is_available: e.target.checked,
+                    })
                   }
                 />
                 זמין להזמנה
@@ -653,7 +898,10 @@ export default function AdminPage() {
                   type="checkbox"
                   checked={productForm.is_visible}
                   onChange={(e) =>
-                    setProductForm({ ...productForm, is_visible: e.target.checked })
+                    setProductForm({
+                      ...productForm,
+                      is_visible: e.target.checked,
+                    })
                   }
                 />
                 מוצג באתר
@@ -712,35 +960,61 @@ export default function AdminPage() {
           ) : (
             <div className="admin-products-grid">
               {products.map((product) => (
-                <article className="admin-product-card" key={product.id}>
+                <article
+                  className="admin-product-card"
+                  key={product.id}
+                >
                   {product.image_url ? (
-                    <img src={product.image_url} alt={product.name} />
+                    <img
+                      src={product.image_url}
+                      alt={product.name}
+                    />
                   ) : (
-                    <div className="admin-product-no-image">🛍️</div>
+                    <div className="admin-product-no-image">
+                      🛍️
+                    </div>
                   )}
 
                   <div className="admin-product-card-content">
                     <h3>{product.name}</h3>
-                    <p>{product.description || "אין תיאור למוצר."}</p>
+
+                    <p>
+                      {product.description ||
+                        "אין תיאור למוצר."}
+                    </p>
 
                     <div className="admin-product-prices">
                       {product.special_price !== null ? (
                         <>
-                          <strong>₪{product.special_price}</strong>
+                          <strong>
+                            ₪{product.special_price}
+                          </strong>
+
                           {product.price !== null && (
                             <del>₪{product.price}</del>
                           )}
                         </>
                       ) : (
                         <strong>
-                          {product.price !== null ? `₪${product.price}` : "ללא מחיר"}
+                          {product.price !== null
+                            ? `₪${product.price}`
+                            : "ללא מחיר"}
                         </strong>
                       )}
                     </div>
 
                     <div className="admin-product-badges">
-                      <span>{product.is_available ? "זמין להזמנה" : "לא זמין"}</span>
-                      <span>{product.is_visible ? "מוצג באתר" : "מוסתר"}</span>
+                      <span>
+                        {product.is_available
+                          ? "זמין להזמנה"
+                          : "לא זמין"}
+                      </span>
+
+                      <span>
+                        {product.is_visible
+                          ? "מוצג באתר"
+                          : "מוסתר"}
+                      </span>
                     </div>
 
                     <div className="admin-product-actions">
@@ -750,12 +1024,15 @@ export default function AdminPage() {
                       >
                         עריכה
                       </button>
+
                       <button
                         className="admin-delete-button"
                         disabled={busy === product.id}
                         onClick={() => deleteProduct(product)}
                       >
-                        {busy === product.id ? "מוחק..." : "מחיקה"}
+                        {busy === product.id
+                          ? "מוחק..."
+                          : "מחיקה"}
                       </button>
                     </div>
                   </div>
