@@ -1,6 +1,7 @@
 
 import Link from "next/link";
 import OrderForm from "@/components/OrderForm";
+
 const products = [
   {
     id: 1,
@@ -75,7 +76,6 @@ export default function Home() {
 
                 <div className="product-content">
                   <h3>{product.name}</h3>
-
                   <p>{product.description}</p>
 
                   <div className="product-price">
@@ -93,16 +93,11 @@ export default function Home() {
           </h2>
 
           <p className="section-description">
-            בקרוב תוכלו למלא כאן את פרטי ההזמנה.
+            מלאו את פרטי ההזמנה ונחזור אליכם.
           </p>
 
-          <div className="panel">
-            <p>
-              מערכת ההזמנות נמצאת בתהליך הקמה.
-              בשלב הבא נחבר את טופס ההזמנה,
-              אימות הטלפון ואיתור הפעילים.
-            </p>
-          </div>
+          <OrderForm />
+
         </section>
       </main>
 
