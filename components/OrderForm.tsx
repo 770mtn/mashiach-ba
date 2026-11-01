@@ -4,10 +4,10 @@
 import { useState } from "react";
 
 const products = [
-  { id: "flag", name: "דגלי קבלת המלכות", price: 0 },
-  { id: "sign", name: "שלטי קבלת המלכות", price: 0 },
-  { id: "sticker", name: "מדבקות קמפיין", price: 0 },
-  { id: "kit", name: "ערכת פרסום לבית", price: 0 },
+  { id: "flag", name: "דגלי קבלת המלכות" },
+  { id: "sign", name: "שלטי קבלת המלכות" },
+  { id: "sticker", name: "מדבקות קמפיין" },
+  { id: "kit", name: "ערכת פרסום לבית" },
 ];
 
 export default function OrderForm() {
@@ -16,6 +16,7 @@ export default function OrderForm() {
   const [code, setCode] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [verified, setVerified] = useState(false);
+  const [verificationToken, setVerificationToken] = useState("");
   const [address, setAddress] = useState("");
   const [items, setItems] = useState<Record<string, number>>({});
   const [installation, setInstallation] = useState("לא");
@@ -23,13 +24,21 @@ export default function OrderForm() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const selectedItems = products
-    .filter((product) => (items[product.id] || 0) > 0)
-    .map((product) => ({
-      product_id: product.id,
-      name: product.name,
-      quantity: items[product.id],
-    }));
+  async function api(url: string, data: object) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(result.error || "הפעולה נכשלה.");
+    }
+
+    return result;
+  }
 
   async function sendCode() {
     setMessage("");
@@ -40,48 +49,35 @@ export default function OrderForm() {
     }
 
     setLoading(true);
+
     try {
-      const response = await fetch("/api/otp/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone }),
-      });
-
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "שליחת הקוד נכשלה");
-
+      await api("/api/otp/send", { phone });
       setOtpSent(true);
-      setMessage("קוד אימות נשלח למספר הטלפון שהזנת.");
+      setVerified(false);
+      setVerificationToken("");
+      setMessage("קוד אימות נשלח.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "אירעה שגיאה.");
+      setMessage(error instanceof Error ? error.message : "שגיאה.");
     } finally {
       setLoading(false);
     }
   }
 
   async function verifyCode() {
+    setLoading(true);
     setMessage("");
 
-    if (code.trim().length < 4) {
-      setMessage("נא להזין את קוד האימות שקיבלת.");
-      return;
-    }
-
-    setLoading(true);
     try {
-      const response = await fetch("/api/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone, code }),
+      const result = await api("/api/otp/verify", {
+        phone,
+        code,
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "האימות נכשל");
-
       setVerified(true);
+      setVerificationToken(result.verificationToken);
       setMessage("מספר הטלפון אומת בהצלחה.");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "אירעה שגיאה.");
+      setMessage(error instanceof Error ? error.message : "שגיאה.");
     } finally {
       setLoading(false);
     }
@@ -91,8 +87,15 @@ export default function OrderForm() {
     event.preventDefault();
     setMessage("");
 
-    if (!verified) {
-      setMessage("יש לאמת את מספר הטלפון לפני שליחת ההזמנה.");
+    const selectedItems = products
+      .filter((product) => (items[product.id] || 0) > 0)
+      .map((product) => ({
+        product_id: product.id,
+        quantity: items[product.id],
+      }));
+
+    if (!verified || !verificationToken) {
+      setMessage("יש לאמת את מספר הטלפון.");
       return;
     }
 
@@ -101,30 +104,21 @@ export default function OrderForm() {
       return;
     }
 
-    if (!address.trim()) {
-      setMessage("נא להזין כתובת מלאה.");
-      return;
-    }
-
     setLoading(true);
+
     try {
-      const response = await fetch("/api/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          full_name: name,
-          phone,
-          address,
-          items: selectedItems,
-          installation_required: installation === "כן",
-          notes,
-        }),
+      await api("/api/orders", {
+        full_name: name,
+        phone,
+        verificationToken,
+        address,
+        items: selectedItems,
+        installation_required: installation === "כן",
+        notes,
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "שליחת ההזמנה נכשלה");
+      setMessage("ההזמנה התקבלה בהצלחה!");
 
-      setMessage("ההזמנה התקבלה בהצלחה! תודה על השתתפותך בקמפיין.");
       setName("");
       setPhone("");
       setCode("");
@@ -134,78 +128,69 @@ export default function OrderForm() {
       setNotes("");
       setOtpSent(false);
       setVerified(false);
+      setVerificationToken("");
+
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "אירעה שגיאה.");
+      setMessage(error instanceof Error ? error.message : "שגיאה.");
     } finally {
       setLoading(false);
     }
   }
 
-  function updateQuantity(id: string, value: number) {
+  function updateQuantity(id: string, quantity: number) {
     setItems((current) => ({
       ...current,
-      [id]: Math.max(0, Math.min(99, value)),
+      [id]: Math.max(0, Math.min(99, quantity)),
     }));
   }
 
   return (
-    <section className="order-section" id="order">
+    <section className="order-section">
       <div className="order-heading">
         <span className="section-kicker">מצטרפים לפעילות</span>
         <h2>מזמינים ומפיצים את הבשורה</h2>
-        <p>ממלאים את הפרטים, בוחרים את המוצרים ונציג מטעמנו יחזור אליכם.</p>
+        <p>ממלאים את הפרטים, בוחרים מוצרים ונציג יחזור אליכם.</p>
       </div>
 
       <form className="order-form" onSubmit={submitOrder}>
         <label className="form-label">
           שם מלא
-          <input
-            required
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="שם פרטי ומשפחה"
-            autoComplete="name"
-          />
+          <input required value={name}
+            onChange={(e) => setName(e.target.value)}
+            autoComplete="name" placeholder="שם פרטי ומשפחה" />
         </label>
 
         <div className="form-label">
           מספר טלפון
           <div className="phone-row">
-            <input
-              required
-              type="tel"
-              value={phone}
+            <input required type="tel" value={phone}
               disabled={verified}
-              onChange={(event) => {
-                setPhone(event.target.value);
-                setVerified(false);
+              onChange={(e) => {
+                setPhone(e.target.value);
                 setOtpSent(false);
+                setVerified(false);
+                setVerificationToken("");
+                setCode("");
               }}
-              placeholder="05X-XXXXXXX"
-              autoComplete="tel"
-            />
+              placeholder="05X-XXXXXXX" />
             {!verified && (
               <button type="button" onClick={sendCode} disabled={loading}>
                 {loading ? "שולח..." : otpSent ? "שלח שוב" : "שליחת קוד"}
               </button>
             )}
-            {verified && <span className="verified-label">הטלפון אומת ✓</span>}
+            {verified && <span>הטלפון אומת ✓</span>}
           </div>
         </div>
 
         {otpSent && !verified && (
           <div className="form-label">
-            קוד אימות שקיבלת ב־SMS
+            קוד אימות
             <div className="phone-row">
-              <input
-                value={code}
-                onChange={(event) => setCode(event.target.value)}
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                placeholder="קוד אימות"
-              />
+              <input value={code}
+                onChange={(e) => setCode(e.target.value)}
+                inputMode="numeric" placeholder="קוד שקיבלת ב-SMS" />
               <button type="button" onClick={verifyCode} disabled={loading}>
-                {loading ? "בודק..." : "אימות"}
+                אימות
               </button>
             </div>
           </div>
@@ -213,51 +198,33 @@ export default function OrderForm() {
 
         <label className="form-label">
           כתובת מלאה
-          <input
-            required
-            value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder="עיר, רחוב ומספר בית"
-            autoComplete="street-address"
-          />
-          <small>בשלב הבא נחבר השלמת כתובת באמצעות Google Maps.</small>
+          <input required value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="עיר, רחוב ומספר בית" />
         </label>
 
         <div className="products-picker">
           <h3>בחירת מוצרים</h3>
-          <p>בחרו את המוצרים ואת הכמות הרצויה.</p>
           {products.map((product) => (
             <div className="product-choice" key={product.id}>
               <span>{product.name}</span>
               <div className="quantity-control">
-                <button
-                  type="button"
-                  aria-label={`הפחתת כמות ${product.name}`}
-                  onClick={() =>
-                    updateQuantity(product.id, (items[product.id] || 0) - 1)
-                  }
-                >
-                  −
-                </button>
-                <input
-                  aria-label={`כמות ${product.name}`}
-                  type="number"
-                  min="0"
-                  max="99"
+                <button type="button"
+                  onClick={() => updateQuantity(
+                    product.id,
+                    (items[product.id] || 0) - 1
+                  )}>−</button>
+                <input type="number" min="0" max="99"
                   value={items[product.id] || 0}
-                  onChange={(event) =>
-                    updateQuantity(product.id, Number(event.target.value))
-                  }
-                />
-                <button
-                  type="button"
-                  aria-label={`הוספת כמות ${product.name}`}
-                  onClick={() =>
-                    updateQuantity(product.id, (items[product.id] || 0) + 1)
-                  }
-                >
-                  +
-                </button>
+                  onChange={(e) => updateQuantity(
+                    product.id,
+                    Number(e.target.value)
+                  )} />
+                <button type="button"
+                  onClick={() => updateQuantity(
+                    product.id,
+                    (items[product.id] || 0) + 1
+                  )}>+</button>
               </div>
             </div>
           ))}
@@ -266,35 +233,21 @@ export default function OrderForm() {
         <fieldset className="installation-field">
           <legend>האם נדרשת התקנה?</legend>
           <label>
-            <input
-              type="radio"
-              name="installation"
-              value="כן"
+            <input type="radio" name="installation"
               checked={installation === "כן"}
-              onChange={() => setInstallation("כן")}
-            />
-            כן
+              onChange={() => setInstallation("כן")} /> כן
           </label>
           <label>
-            <input
-              type="radio"
-              name="installation"
-              value="לא"
+            <input type="radio" name="installation"
               checked={installation === "לא"}
-              onChange={() => setInstallation("לא")}
-            />
-            לא
+              onChange={() => setInstallation("לא")} /> לא
           </label>
         </fieldset>
 
         <label className="form-label">
           הערות נוספות
-          <textarea
-            value={notes}
-            onChange={(event) => setNotes(event.target.value)}
-            rows={4}
-            placeholder="פרטים נוספים שחשוב לנו לדעת..."
-          />
+          <textarea rows={4} value={notes}
+            onChange={(e) => setNotes(e.target.value)} />
         </label>
 
         {message && (
@@ -304,12 +257,11 @@ export default function OrderForm() {
         )}
 
         <button className="submit-order" type="submit" disabled={loading}>
-          {loading ? "שולח הזמנה..." : "שליחת הזמנה"}
+          {loading ? "שולח..." : "שליחת הזמנה"}
         </button>
 
         <p className="form-disclaimer">
-          שליחת הטופס אינה כרוכה בתשלום. פרטי ההזמנה ישמשו לצורך יצירת קשר
-          ותיאום הפעילות.
+          שליחת הטופס אינה כרוכה בתשלום.
         </p>
       </form>
     </section>
